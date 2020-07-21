@@ -167,14 +167,18 @@ static void __magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, u8 *t
 {
 	struct input_dev *input = msc->input;
 
-	/* Store tracking ID and other fields. */
-	msc->tracking_ids[raw_id] = id;
-	msc->touches[id].x = x;
-	msc->touches[id].y = y;
-	msc->touches[id].size = size;
+	if (virtual_touchpad) {
+		input = virtual_touchpad;
+	} else {
+		/* Store tracking ID and other fields. */
+		msc->tracking_ids[raw_id] = id;
+		msc->touches[id].x = x;
+		msc->touches[id].y = y;
+		msc->touches[id].size = size;
 
-	if (down)
-		msc->ntouches++;
+		if (down)
+			msc->ntouches++;
+	}
 
 	input_mt_slot(input, id);
 	input_mt_report_slot_state(input, MT_TOOL_FINGER, down);
@@ -200,7 +204,8 @@ static void __magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, u8 *t
 	}
 }
 
-static void magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, u8 *tdata)
+// Returns true if touch events were hijacked
+static bool magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, int npoints, u8 *tdata)
 {
 	struct input_dev *input = msc->input;
 	int id, x, y, size, orientation, touch_major, touch_minor, state, down;
@@ -217,8 +222,22 @@ static void magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, u8 *tda
 		state = tdata[7] & TOUCH_STATE_MASK;
 		down = state != TOUCH_STATE_NONE;
 
-		if (virtual_touchpad)
-			input = virtual_touchpad;
+		if (virtual_touchpad) {
+			if (npoints == 1) {
+				__magicmouse_emit_touch(msc, raw_id, tdata,
+						1, x - 50, y, size, orientation,
+						touch_major, touch_minor,
+						state, down, pressure);
+				__magicmouse_emit_touch(msc, raw_id, tdata,
+						2, x + 50, y, size, orientation,
+						touch_major, touch_minor,
+						state, down, pressure);
+			}
+			input_sync(virtual_touchpad);
+
+			// Skip reporting touch events
+			return true;
+		}
 	} else if (input->id.product == USB_DEVICE_ID_APPLE_MAGICTRACKPAD2) {
 		id = tdata[8] & 0xf;
 		x = (tdata[1] << 27 | tdata[0] << 19) >> 19;
@@ -246,6 +265,8 @@ static void magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, u8 *tda
 				id, x, y, size, orientation,
 				touch_major, touch_minor,
 				state, down, pressure);
+
+	return false;
 }
 
 static int magicmouse_raw_event(struct hid_device *hdev,
@@ -269,7 +290,8 @@ static int magicmouse_raw_event(struct hid_device *hdev,
 		}
 		msc->ntouches = 0;
 		for (ii = 0; ii < npoints; ii++)
-			magicmouse_emit_touch(msc, ii, data + ii * 9 + 4);
+			if (magicmouse_emit_touch(msc, ii, npoints, data + ii * 9 + 4))
+				return 1;
 
 		clicks = data[1];
 
@@ -291,7 +313,7 @@ static int magicmouse_raw_event(struct hid_device *hdev,
 		}
 		msc->ntouches = 0;
 		for (ii = 0; ii < npoints; ii++)
-			magicmouse_emit_touch(msc, ii, data + ii * 9 + 12);
+			magicmouse_emit_touch(msc, ii, npoints, data + ii * 9 + 12);
 
 		clicks = data[1];
 		break;
@@ -307,7 +329,7 @@ static int magicmouse_raw_event(struct hid_device *hdev,
 		}
 		msc->ntouches = 0;
 		for (ii = 0; ii < npoints; ii++)
-			magicmouse_emit_touch(msc, ii, data + ii * 8 + 6);
+			magicmouse_emit_touch(msc, ii, npoints, data + ii * 8 + 6);
 
 		/* When emulating three-button mode, it is important
 		 * to have the current touch information before
