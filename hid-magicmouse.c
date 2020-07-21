@@ -187,7 +187,7 @@ static void __magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, u8 *t
 	if (down) {
 		input_report_abs(input, ABS_MT_TOUCH_MAJOR, touch_major << 2);
 		input_report_abs(input, ABS_MT_TOUCH_MINOR, touch_minor << 2);
-		input_report_abs(input, ABS_MT_ORIENTATION, -orientation);
+		input_report_abs(input, ABS_MT_ORIENTATION, 1 /* -orientation */);
 		input_report_abs(input, ABS_MT_POSITION_X, x);
 		input_report_abs(input, ABS_MT_POSITION_Y, y);
 
