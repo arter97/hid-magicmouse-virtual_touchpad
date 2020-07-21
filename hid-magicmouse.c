@@ -160,6 +160,46 @@ static void magicmouse_emit_buttons(struct magicmouse_sc *msc, int state)
 	input_report_key(msc->input, BTN_RIGHT, state & 2);
 }
 
+static void __magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, u8 *tdata,
+				int id, int x, int y, int size, int orientation,
+				int touch_major, int touch_minor,
+				int state, int down, int pressure)
+{
+	struct input_dev *input = msc->input;
+
+	/* Store tracking ID and other fields. */
+	msc->tracking_ids[raw_id] = id;
+	msc->touches[id].x = x;
+	msc->touches[id].y = y;
+	msc->touches[id].size = size;
+
+	if (down)
+		msc->ntouches++;
+
+	input_mt_slot(input, id);
+	input_mt_report_slot_state(input, MT_TOOL_FINGER, down);
+
+	/* Generate the input events for this touch. */
+	if (down) {
+		input_report_abs(input, ABS_MT_TOUCH_MAJOR, touch_major << 2);
+		input_report_abs(input, ABS_MT_TOUCH_MINOR, touch_minor << 2);
+		input_report_abs(input, ABS_MT_ORIENTATION, -orientation);
+		input_report_abs(input, ABS_MT_POSITION_X, x);
+		input_report_abs(input, ABS_MT_POSITION_Y, y);
+
+		if (input->id.product == USB_DEVICE_ID_APPLE_MAGICTRACKPAD2)
+			input_report_abs(input, ABS_MT_PRESSURE, pressure);
+
+		if (report_undeciphered) {
+			if (input->id.product == USB_DEVICE_ID_APPLE_MAGICMOUSE)
+				input_event(input, EV_MSC, MSC_RAW, tdata[7]);
+			else if (input->id.product !=
+					USB_DEVICE_ID_APPLE_MAGICTRACKPAD2)
+				input_event(input, EV_MSC, MSC_RAW, tdata[8]);
+		}
+	}
+}
+
 static void magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, u8 *tdata)
 {
 	struct input_dev *input = msc->input;
@@ -202,37 +242,10 @@ static void magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, u8 *tda
 		down = state != TOUCH_STATE_NONE;
 	}
 
-	/* Store tracking ID and other fields. */
-	msc->tracking_ids[raw_id] = id;
-	msc->touches[id].x = x;
-	msc->touches[id].y = y;
-	msc->touches[id].size = size;
-
-	if (down)
-		msc->ntouches++;
-
-	input_mt_slot(input, id);
-	input_mt_report_slot_state(input, MT_TOOL_FINGER, down);
-
-	/* Generate the input events for this touch. */
-	if (down) {
-		input_report_abs(input, ABS_MT_TOUCH_MAJOR, touch_major << 2);
-		input_report_abs(input, ABS_MT_TOUCH_MINOR, touch_minor << 2);
-		input_report_abs(input, ABS_MT_ORIENTATION, -orientation);
-		input_report_abs(input, ABS_MT_POSITION_X, x);
-		input_report_abs(input, ABS_MT_POSITION_Y, y);
-
-		if (input->id.product == USB_DEVICE_ID_APPLE_MAGICTRACKPAD2)
-			input_report_abs(input, ABS_MT_PRESSURE, pressure);
-
-		if (report_undeciphered) {
-			if (input->id.product == USB_DEVICE_ID_APPLE_MAGICMOUSE)
-				input_event(input, EV_MSC, MSC_RAW, tdata[7]);
-			else if (input->id.product !=
-					USB_DEVICE_ID_APPLE_MAGICTRACKPAD2)
-				input_event(input, EV_MSC, MSC_RAW, tdata[8]);
-		}
-	}
+	__magicmouse_emit_touch(msc, raw_id, tdata,
+				id, x, y, size, orientation,
+				touch_major, touch_minor,
+				state, down, pressure);
 }
 
 static int magicmouse_raw_event(struct hid_device *hdev,
