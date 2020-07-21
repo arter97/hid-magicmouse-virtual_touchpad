@@ -30,6 +30,8 @@ static bool report_undeciphered;
 module_param(report_undeciphered, bool, 0644);
 MODULE_PARM_DESC(report_undeciphered, "Report undeciphered multi-touch state field using a MSC_RAW event");
 
+static struct input_dev *virtual_touchpad;
+
 #define TRACKPAD_REPORT_ID 0x28
 #define TRACKPAD2_USB_REPORT_ID 0x02
 #define TRACKPAD2_BT_REPORT_ID 0x31
@@ -333,6 +335,31 @@ static int magicmouse_raw_event(struct hid_device *hdev,
 	return 1;
 }
 
+static void register_virtual_touchpad(struct device *dev)
+{
+	struct input_dev *input;
+
+	virtual_touchpad = input_allocate_device();
+	if (virtual_touchpad == NULL) {
+		pr_err("%s: Failed to allocate input device\n", __func__);
+		return;
+	}
+
+	input = virtual_touchpad;
+
+	input->name = "Apple Virtual TouchPad";
+	input->dev.parent = dev;
+	input->id.product = USB_DEVICE_ID_APPLE_MAGICMOUSE;
+
+	if (input_register_device(input)) {
+		pr_err("%s: Failed to register input device\n", __func__);
+		input_free_device(input);
+		return;
+	}
+
+	return;
+}
+
 static int magicmouse_setup_input(struct input_dev *input, struct hid_device *hdev)
 {
 	int error;
@@ -349,6 +376,15 @@ static int magicmouse_setup_input(struct input_dev *input, struct hid_device *hd
 		__set_bit(EV_REL, input->evbit);
 		__set_bit(REL_X, input->relbit);
 		__set_bit(REL_Y, input->relbit);
+
+		register_virtual_touchpad(&hdev->dev);
+		if (virtual_touchpad) {
+			pr_info("Setting up a virtual touchpad for scrolling\n");
+			input_set_events_per_packet(input, 60);
+			input = virtual_touchpad;
+		} else {
+			pr_warn("Failed to setup a virtual touchpad for scrolling\n");
+		}
 	} else if (input->id.product == USB_DEVICE_ID_APPLE_MAGICTRACKPAD2) {
 		/* setting the device name to ensure the same driver settings
 		 * get loaded, whether connected through bluetooth or USB
@@ -495,6 +531,17 @@ static int magicmouse_input_configured(struct hid_device *hdev,
 	return 0;
 }
 
+static void magicmouse_remove(struct hid_device *hdev)
+{
+	if (virtual_touchpad) {
+		input_unregister_device(virtual_touchpad);
+		input_free_device(virtual_touchpad);
+
+		virtual_touchpad = NULL;
+	}
+
+	hid_hw_stop(hdev);
+}
 
 static int magicmouse_probe(struct hid_device *hdev,
 	const struct hid_device_id *id)
@@ -602,7 +649,7 @@ static int magicmouse_probe(struct hid_device *hdev,
 
 	return 0;
 err_stop_hw:
-	hid_hw_stop(hdev);
+	magicmouse_remove(hdev);
 	return ret;
 }
 
@@ -623,6 +670,7 @@ static struct hid_driver magicmouse_driver = {
 	.name = "magicmouse",
 	.id_table = magic_mice,
 	.probe = magicmouse_probe,
+	.remove = magicmouse_remove,
 	.raw_event = magicmouse_raw_event,
 	.input_mapping = magicmouse_input_mapping,
 	.input_configured = magicmouse_input_configured,
