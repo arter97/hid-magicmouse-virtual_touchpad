@@ -357,6 +357,17 @@ static void register_virtual_touchpad(struct device *dev)
 		return;
 	}
 
+	__set_bit(EV_KEY, input->evbit);
+	__set_bit(BTN_MOUSE, input->keybit);
+	__set_bit(BTN_TOOL_FINGER, input->keybit);
+	__set_bit(BTN_TOOL_DOUBLETAP, input->keybit);
+	__set_bit(BTN_TOOL_TRIPLETAP, input->keybit);
+	__set_bit(BTN_TOOL_QUADTAP, input->keybit);
+	__set_bit(BTN_TOOL_QUINTTAP, input->keybit);
+	__set_bit(BTN_TOUCH, input->keybit);
+	__set_bit(INPUT_PROP_POINTER, input->propbit);
+	__set_bit(INPUT_PROP_BUTTONPAD, input->propbit);
+
 	return;
 }
 
@@ -439,11 +450,19 @@ static int magicmouse_setup_input(struct input_dev *input, struct hid_device *hd
 	 */
 	if (input->id.product == USB_DEVICE_ID_APPLE_MAGICMOUSE) {
 		input_set_abs_params(input, ABS_MT_ORIENTATION, -31, 32, 1, 0);
+		input_set_abs_params(input, ABS_X,
+				     MOUSE_MIN_X, MOUSE_MAX_X, 4, 0);
+		input_set_abs_params(input, ABS_Y,
+				     MOUSE_MIN_Y, MOUSE_MAX_Y, 4, 0);
 		input_set_abs_params(input, ABS_MT_POSITION_X,
 				     MOUSE_MIN_X, MOUSE_MAX_X, 4, 0);
 		input_set_abs_params(input, ABS_MT_POSITION_Y,
 				     MOUSE_MIN_Y, MOUSE_MAX_Y, 4, 0);
 
+		input_abs_set_res(input, ABS_X,
+				  MOUSE_RES_X);
+		input_abs_set_res(input, ABS_Y,
+				  MOUSE_RES_Y);
 		input_abs_set_res(input, ABS_MT_POSITION_X,
 				  MOUSE_RES_X);
 		input_abs_set_res(input, ABS_MT_POSITION_Y,
