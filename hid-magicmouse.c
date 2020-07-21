@@ -26,26 +26,6 @@ MODULE_PARM_DESC(emulate_3button, "Emulate a middle button");
 static int middle_button_start = -350;
 static int middle_button_stop = +350;
 
-static bool emulate_scroll_wheel = true;
-module_param(emulate_scroll_wheel, bool, 0644);
-MODULE_PARM_DESC(emulate_scroll_wheel, "Emulate a scroll wheel");
-
-static unsigned int scroll_speed = 32;
-static int param_set_scroll_speed(const char *val,
-				  const struct kernel_param *kp) {
-	unsigned long speed;
-	if (!val || kstrtoul(val, 0, &speed) || speed > 63)
-		return -EINVAL;
-	scroll_speed = speed;
-	return 0;
-}
-module_param_call(scroll_speed, param_set_scroll_speed, param_get_uint, &scroll_speed, 0644);
-MODULE_PARM_DESC(scroll_speed, "Scroll speed, value from 0 (slow) to 63 (fast)");
-
-static bool scroll_acceleration = false;
-module_param(scroll_acceleration, bool, 0644);
-MODULE_PARM_DESC(scroll_acceleration, "Accelerate sequential scroll events");
-
 static bool report_undeciphered;
 module_param(report_undeciphered, bool, 0644);
 MODULE_PARM_DESC(report_undeciphered, "Report undeciphered multi-touch state field using a MSC_RAW event");
@@ -65,8 +45,6 @@ MODULE_PARM_DESC(report_undeciphered, "Report undeciphered multi-touch state fie
 #define TOUCH_STATE_NONE  0x00
 #define TOUCH_STATE_START 0x30
 #define TOUCH_STATE_DRAG  0x40
-
-#define SCROLL_ACCEL_DEFAULT 7
 
 /* Touch surface information. Dimension is in hundredths of a mm, min and max
  * are in units. */
@@ -106,8 +84,6 @@ MODULE_PARM_DESC(report_undeciphered, "Report undeciphered multi-touch state fie
  * @input: Input device through which we report events.
  * @quirks: Currently unused.
  * @ntouches: Number of touches in most recent touch report.
- * @scroll_accel: Number of consecutive scroll motions.
- * @scroll_jiffies: Time of last scroll motion.
  * @touches: Most recent data for a touch, indexed by tracking ID.
  * @tracking_ids: Mapping of current touch input data to @touches.
  */
@@ -116,14 +92,10 @@ struct magicmouse_sc {
 	unsigned long quirks;
 
 	int ntouches;
-	int scroll_accel;
-	unsigned long scroll_jiffies;
 
 	struct {
 		short x;
 		short y;
-		short scroll_x;
-		short scroll_y;
 		u8 size;
 	} touches[16];
 	int tracking_ids[16];
@@ -184,9 +156,6 @@ static void magicmouse_emit_buttons(struct magicmouse_sc *msc, int state)
 
 	input_report_key(msc->input, BTN_LEFT, state & 1);
 	input_report_key(msc->input, BTN_RIGHT, state & 2);
-
-	if (state != last_state)
-		msc->scroll_accel = SCROLL_ACCEL_DEFAULT;
 }
 
 static void magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, u8 *tdata)
@@ -233,50 +202,6 @@ static void magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, u8 *tda
 	msc->touches[id].x = x;
 	msc->touches[id].y = y;
 	msc->touches[id].size = size;
-
-	/* If requested, emulate a scroll wheel by detecting small
-	 * vertical touch motions.
-	 */
-	if (emulate_scroll_wheel && (input->id.product !=
-			USB_DEVICE_ID_APPLE_MAGICTRACKPAD2)) {
-		unsigned long now = jiffies;
-		int step_x = msc->touches[id].scroll_x - x;
-		int step_y = msc->touches[id].scroll_y - y;
-
-		/* Calculate and apply the scroll motion. */
-		switch (state) {
-		case TOUCH_STATE_START:
-			msc->touches[id].scroll_x = x;
-			msc->touches[id].scroll_y = y;
-
-			/* Reset acceleration after half a second. */
-			if (scroll_acceleration && time_before(now,
-						msc->scroll_jiffies + HZ / 2))
-				msc->scroll_accel = max_t(int,
-						msc->scroll_accel - 1, 1);
-			else
-				msc->scroll_accel = SCROLL_ACCEL_DEFAULT;
-
-			break;
-		case TOUCH_STATE_DRAG:
-			step_x /= (64 - (int)scroll_speed) * msc->scroll_accel;
-			if (step_x != 0) {
-				msc->touches[id].scroll_x -= step_x *
-					(64 - scroll_speed) * msc->scroll_accel;
-				msc->scroll_jiffies = now;
-				input_report_rel(input, REL_HWHEEL, -step_x);
-			}
-
-			step_y /= (64 - (int)scroll_speed) * msc->scroll_accel;
-			if (step_y != 0) {
-				msc->touches[id].scroll_y -= step_y *
-					(64 - scroll_speed) * msc->scroll_accel;
-				msc->scroll_jiffies = now;
-				input_report_rel(input, REL_WHEEL, step_y);
-			}
-			break;
-		}
-	}
 
 	if (down)
 		msc->ntouches++;
@@ -424,10 +349,6 @@ static int magicmouse_setup_input(struct input_dev *input, struct hid_device *hd
 		__set_bit(EV_REL, input->evbit);
 		__set_bit(REL_X, input->relbit);
 		__set_bit(REL_Y, input->relbit);
-		if (emulate_scroll_wheel) {
-			__set_bit(REL_WHEEL, input->relbit);
-			__set_bit(REL_HWHEEL, input->relbit);
-		}
 	} else if (input->id.product == USB_DEVICE_ID_APPLE_MAGICTRACKPAD2) {
 		/* setting the device name to ensure the same driver settings
 		 * get loaded, whether connected through bluetooth or USB
@@ -598,8 +519,6 @@ static int magicmouse_probe(struct hid_device *hdev,
 		hid_err(hdev, "can't alloc magicmouse descriptor\n");
 		return -ENOMEM;
 	}
-
-	msc->scroll_accel = SCROLL_ACCEL_DEFAULT;
 
 	msc->quirks = id->driver_data;
 	hid_set_drvdata(hdev, msc);
