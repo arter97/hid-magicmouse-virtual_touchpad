@@ -32,6 +32,8 @@ MODULE_PARM_DESC(report_undeciphered, "Report undeciphered multi-touch state fie
 
 static struct input_dev *virtual_touchpad;
 
+#define VIRTUAL_TWO_FINGER_DISTANCE 50
+
 #define TRACKPAD_REPORT_ID 0x28
 #define TRACKPAD2_USB_REPORT_ID 0x02
 #define TRACKPAD2_BT_REPORT_ID 0x31
@@ -225,11 +227,13 @@ static bool magicmouse_emit_touch(struct magicmouse_sc *msc, int raw_id, int npo
 		if (virtual_touchpad) {
 			if (npoints == 1) {
 				__magicmouse_emit_touch(msc, raw_id, tdata,
-						1, x - 50, y, size, orientation,
+						1, x - VIRTUAL_TWO_FINGER_DISTANCE, y,
+						size, orientation,
 						touch_major, touch_minor,
 						state, down, pressure);
 				__magicmouse_emit_touch(msc, raw_id, tdata,
-						2, x + 50, y, size, orientation,
+						2, x + VIRTUAL_TWO_FINGER_DISTANCE, y,
+						size, orientation,
 						touch_major, touch_minor,
 						state, down, pressure);
 			}
@@ -493,11 +497,15 @@ static int magicmouse_setup_input(struct input_dev *input, struct hid_device *hd
 	if (input->id.product == USB_DEVICE_ID_APPLE_MAGICMOUSE) {
 		input_set_abs_params(input, ABS_MT_ORIENTATION, -31, 32, 1, 0);
 		input_set_abs_params(input, ABS_X,
-				     MOUSE_MIN_X, MOUSE_MAX_X, 4, 0);
+				     MOUSE_MIN_X - VIRTUAL_TWO_FINGER_DISTANCE,
+				     MOUSE_MAX_X + VIRTUAL_TWO_FINGER_DISTANCE,
+				     4, 0);
+		input_set_abs_params(input, ABS_MT_POSITION_X,
+				     MOUSE_MIN_X - VIRTUAL_TWO_FINGER_DISTANCE,
+				     MOUSE_MAX_X + VIRTUAL_TWO_FINGER_DISTANCE,
+				     4, 0);
 		input_set_abs_params(input, ABS_Y,
 				     MOUSE_MIN_Y, MOUSE_MAX_Y, 4, 0);
-		input_set_abs_params(input, ABS_MT_POSITION_X,
-				     MOUSE_MIN_X, MOUSE_MAX_X, 4, 0);
 		input_set_abs_params(input, ABS_MT_POSITION_Y,
 				     MOUSE_MIN_Y, MOUSE_MAX_Y, 4, 0);
 
